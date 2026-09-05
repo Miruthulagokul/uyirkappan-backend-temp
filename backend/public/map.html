@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+  <meta charset="UTF-8" />
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+
+  <title>UyirKappan - Live Ambulance Tracking</title>
+
+
+  <!-- Leaflet -->
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+
+
+  <style>
+
+    * {
+      box-sizing: border-box;
+    }
+
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+    }
+
+
+    .header {
+
+      height: 64px;
+
+      background: #111827;
+
+      color: white;
+
+      display: flex;
+
+      align-items: center;
+
+      padding: 0 24px;
+
+      font-size: 22px;
+
+      font-weight: bold;
+
+    }
+
+
+    .dashboard {
+
+      height:
+        calc(100vh - 64px);
+
+      display: flex;
+
+    }
+
+
+    #map {
+
+      flex: 1;
+
+      height: 100%;
+
+    }
+
+
+    .panel {
+
+      width: 340px;
+
+      background: white;
+
+      padding: 24px;
+
+      box-shadow:
+        -3px 0 10px
+        rgba(0, 0, 0, 0.15);
+
+      z-index: 1000;
+
+      overflow-y: auto;
+
+    }
+
+
+    .panel h2 {
+
+      margin-top: 0;
+
+      margin-bottom: 12px;
+
+    }
+
+
+    .connection {
+
+      padding: 8px 10px;
+
+      border-radius: 8px;
+
+      margin-bottom: 15px;
+
+      font-size: 13px;
+
+      font-weight: bold;
+
+    }
+
+
+    .connection.connected {
+
+      background: #dcfce7;
+
+      color: #166534;
+
+    }
+
+
+    .connection.disconnected {
+
+      background: #fee2e2;
+
+      color: #991b1b;
+
+    }
+
+
+    .status {
+
+      padding: 10px;
+
+      background: #e5f6e8;
+
+      border-radius: 8px;
+
+      margin-bottom: 20px;
+
+      font-weight: bold;
+
+    }
+
+
+    .info {
+
+      margin: 18px 0;
+
+    }
+
+
+    .label {
+
+      color: #6b7280;
+
+      font-size: 13px;
+
+    }
+
+
+    .value {
+
+      font-size: 20px;
+
+      font-weight: bold;
+
+      margin-top: 4px;
+
+    }
+
+
+    .small-value {
+
+      font-size: 14px;
+
+      margin-top: 5px;
+
+      word-break: break-word;
+
+    }
+
+
+    .traffic {
+
+      padding: 10px;
+
+      border-radius: 8px;
+
+      font-weight: bold;
+
+      margin-top: 5px;
+
+    }
+
+
+    .traffic.normal {
+
+      background: #dcfce7;
+
+      color: #166534;
+
+    }
+
+
+    .traffic.moderate {
+
+      background: #fef3c7;
+
+      color: #92400e;
+
+    }
+
+
+    .traffic.heavy {
+
+      background: #fee2e2;
+
+      color: #991b1b;
+
+    }
+
+
+    .traffic.blocked {
+
+      background: #111827;
+
+      color: white;
+
+    }
+
+
+    .legend {
+
+      margin-top: 30px;
+
+      font-size: 14px;
+
+      border-top: 1px solid #e5e7eb;
+
+      padding-top: 15px;
+
+    }
+
+
+    .event-log {
+
+      margin-top: 25px;
+
+      border-top: 1px solid #e5e7eb;
+
+      padding-top: 15px;
+
+    }
+
+
+    .event {
+
+      font-size: 12px;
+
+      padding: 7px 0;
+
+      border-bottom: 1px solid #f3f4f6;
+
+    }
+
+
+    .timestamp {
+
+      color: #9ca3af;
+
+    }
+
+
+    .ambulance-marker {
+
+      background: transparent;
+
+      border: none;
+
+      font-size: 30px;
+
+      text-align: center;
+
+    }
+
+  </style>
+
+</head>
+
+
+<body>
+
+
+  <!-- ================================================= -->
+  <!-- HEADER -->
+  <!-- ================================================= -->
+
+  <div class="header">
+
+    🚑 UyirKappan — Live Ambulance Tracking
+
+  </div>
+
+
+  <!-- ================================================= -->
+  <!-- DASHBOARD -->
+  <!-- ================================================= -->
+
+  <div class="dashboard">
+
+
+    <!-- MAP -->
+
+    <div id="map"></div>
+
+
+    <!-- SIDE PANEL -->
+
+    <div class="panel">
+
+
+      <h2>
+
+        Ambulance A1
+
+      </h2>
+
+
+      <!-- Socket connection -->
+
+      <div
+        id="connection"
+        class="connection disconnected"
+      >
+
+        🔴 Connecting to backend...
+
+      </div>
+
+
+      <!-- Ambulance status -->
+
+      <div
+        id="status"
+        class="status"
+      >
+
+        🟡 WAITING
+
+      </div>
+
+
+      <!-- Distance -->
+
+      <div class="info">
+
+        <div class="label">
+
+          Remaining Distance
+
+        </div>
+
+        <div
+          class="value"
+          id="distance"
+        >
+
+          Waiting...
+
+        </div>
+
+      </div>
+
+
+      <!-- ETA -->
+
+      <div class="info">
+
+        <div class="label">
+
+          Live ETA
+
+        </div>
+
+        <div
+          class="value"
+          id="duration"
+        >
+
+          Waiting...
+
+        </div>
+
+      </div>
+
+
+      <!-- Speed -->
+
+      <div class="info">
+
+        <div class="label">
+
+          Speed
+
+        </div>
+
+        <div
+          class="value"
+          id="speed"
+        >
+
+          -- km/h
+
+        </div>
+
+      </div>
+
+
+      <!-- Location -->
+
+      <div class="info">
+
+        <div class="label">
+
+          Live GPS Location
+
+        </div>
+
+        <div
+          class="small-value"
+          id="location"
+        >
+
+          Waiting for GPS...
+
+        </div>
+
+      </div>
+
+
+      <!-- Traffic -->
+
+      <div class="info">
+
+        <div class="label">
+
+          Traffic Condition
+
+        </div>
+
+        <div
+          id="traffic"
+          class="traffic normal"
+        >
+
+          NORMAL
+
+        </div>
+
+      </div>
+
+
+      <!-- Last update -->
+
+      <div class="info">
+
+        <div class="label">
+
+          Last Update
+
+        </div>
+
+        <div
+          class="small-value"
+          id="lastUpdate"
+        >
+
+          --
+
+        </div>
+
+      </div>
+
+
+      <!-- Legend -->
+
+      <div class="legend">
+
+        <p>🚑 Ambulance</p>
+
+        <p>📍 Emergency Location</p>
+
+        <p>━━ Real road route</p>
+
+      </div>
+
+
+      <!-- Event log -->
+
+      <div class="event-log">
+
+        <strong>
+
+          Live Events
+
+        </strong>
+
+
+        <div id="eventLog">
+
+          <div class="event">
+
+            Waiting for ambulance...
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+    </div>
+
+  </div>
+
+
+  <!-- ================================================= -->
+  <!-- LEAFLET -->
+  <!-- ================================================= -->
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+  </script>
+
+
+  <!-- ================================================= -->
+  <!-- SOCKET.IO -->
+  <!-- ================================================= -->
+
+  <script
+    src="/socket.io/socket.io.js">
+  </script>
+
+
+  <script>
+
+
+    // =================================================
+    // CONFIGURATION
+    // =================================================
+
+    const REQUEST_ID =
+      "REAL-SIM-001";
+
+
+    const start = [
+      13.0827,
+      80.2707
+    ];
+
+
+    const destination = [
+      13.1000,
+      80.2900
+    ];
+
+
+    // =================================================
+    // MAP
+    // =================================================
+
+    const map =
+      L.map("map")
+        .setView(
+          start,
+          14
+        );
+
+
+    // =================================================
+    // OPEN STREET MAP
+    // =================================================
+
+    L.tileLayer(
+
+      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+
+      {
+
+        maxZoom: 19,
+
+        attribution:
+          "&copy; OpenStreetMap contributors"
+
+      }
+
+    ).addTo(map);
+
+
+    // =================================================
+    // EMERGENCY MARKER
+    // =================================================
+
+    const destinationMarker =
+      L.marker(
+        destination
+      )
+      .addTo(map)
+      .bindPopup(
+        "<b>Emergency Location</b><br>Patient"
+      );
+
+
+    // =================================================
+    // AMBULANCE ICON
+    // =================================================
+
+    const ambulanceIcon =
+      L.divIcon({
+
+        html: "🚑",
+
+        className:
+          "ambulance-marker",
+
+        iconSize: [
+          40,
+          40
+        ],
+
+        iconAnchor: [
+          20,
+          20
+        ]
+
+      });
+
+
+    // =================================================
+    // AMBULANCE MARKER
+    // =================================================
+
+    const ambulanceMarker =
+      L.marker(
+
+        start,
+
+        {
+          icon:
+            ambulanceIcon
+        }
+
+      )
+      .addTo(map)
+      .bindPopup(
+        "<b>Ambulance A1</b>"
+      );
+
+
+    // =================================================
+    // ROUTE
+    // =================================================
+
+    async function loadRoute() {
+
+      try {
+
+        const url =
+
+          "https://router.project-osrm.org/route/v1/driving/" +
+
+          `${start[1]},${start[0]};` +
+
+          `${destination[1]},${destination[0]}` +
+
+          "?overview=full&geometries=geojson";
+
+
+        console.log(
+          "Requesting route..."
+        );
+
+
+        const response =
+          await fetch(url);
+
+
+        if (!response.ok) {
+
+          throw new Error(
+            `OSRM HTTP error: ${response.status}`
+          );
+
+        }
+
+
+        const data =
+          await response.json();
+
+
+        if (
+          data.code !== "Ok"
+        ) {
+
+          throw new Error(
+            "OSRM routing failed"
+          );
+
+        }
+
+
+        const route =
+          data.routes[0];
+
+
+        const routeCoordinates =
+          route.geometry.coordinates.map(
+            coordinate => [
+
+              coordinate[1],
+
+              coordinate[0]
+
+            ]
+          );
+
+
+        // ---------------------------------------------
+        // DRAW REAL ROAD ROUTE
+        // ---------------------------------------------
+
+        const routeLine =
+          L.polyline(
+
+            routeCoordinates,
+
+            {
+
+              weight: 6
+
+            }
+
+          ).addTo(map);
+
+
+        // ---------------------------------------------
+        // FIT MAP
+        // ---------------------------------------------
+
+        map.fitBounds(
+
+          routeLine.getBounds(),
+
+          {
+
+            padding: [
+              30,
+              30
+            ]
+
+          }
+
+        );
+
+
+        console.log(
+          "Real road route loaded."
+        );
+
+
+      } catch (error) {
+
+        console.error(
+          "Route loading failed:",
+          error
+        );
+
+      }
+
+    }
+
+
+    // =================================================
+    // SOCKET.IO
+    // =================================================
+
+    const socket =
+      io();
+
+
+    // =================================================
+    // SOCKET CONNECTED
+    // =================================================
+
+    socket.on(
+      "connect",
+      () => {
+
+        console.log(
+          "Socket connected:",
+          socket.id
+        );
+
+
+        const connection =
+          document.getElementById(
+            "connection"
+          );
+
+
+        connection.className =
+          "connection connected";
+
+
+        connection.textContent =
+          "🟢 Connected to UyirKappan";
+
+
+        addEvent(
+          "Socket.IO connected"
+        );
+
+
+        // ---------------------------------------------
+        // JOIN EMERGENCY
+        // ---------------------------------------------
+
+        socket.emit(
+          "join-emergency",
+          REQUEST_ID
+        );
+
+
+        addEvent(
+          `Joined emergency ${REQUEST_ID}`
+        );
+
+      }
+    );
+
+
+    // =================================================
+    // SOCKET DISCONNECTED
+    // =================================================
+
+    socket.on(
+      "disconnect",
+      () => {
+
+        const connection =
+          document.getElementById(
+            "connection"
+          );
+
+
+        connection.className =
+          "connection disconnected";
+
+
+        connection.textContent =
+          "🔴 Backend disconnected";
+
+
+        addEvent(
+          "Socket.IO disconnected"
+        );
+
+      }
+    );
+
+
+    // =================================================
+    // LIVE AMBULANCE UPDATE
+    // =================================================
+
+    socket.on(
+      "ambulance-update",
+      data => {
+
+        console.log(
+          "🚑 LIVE UPDATE:",
+          data
+        );
+
+
+        // ---------------------------------------------
+        // MOVE MARKER
+        // ---------------------------------------------
+
+        ambulanceMarker.setLatLng([
+
+          data.latitude,
+
+          data.longitude
+
+        ]);
+
+
+        // ---------------------------------------------
+        // DISTANCE
+        // ---------------------------------------------
+
+        document.getElementById(
+          "distance"
+        ).textContent =
+
+          (
+            data.distanceMeters / 1000
+          ).toFixed(2) +
+
+          " km";
+
+
+        // ---------------------------------------------
+        // ETA
+        // ---------------------------------------------
+
+        const etaMinutes =
+          data.etaSeconds / 60;
+
+
+        const etaWholeMinutes =
+          Math.floor(
+            etaMinutes
+          );
+
+
+        const etaSeconds =
+          Math.floor(
+            data.etaSeconds % 60
+          );
+
+
+        document.getElementById(
+          "duration"
+        ).textContent =
+
+          `${etaWholeMinutes}:${String(
+            etaSeconds
+          ).padStart(2, "0")}`;
+
+
+        // ---------------------------------------------
+        // SPEED
+        // ---------------------------------------------
+
+        document.getElementById(
+          "speed"
+        ).textContent =
+
+          data.speedKmh !== undefined
+
+            ? `${data.speedKmh.toFixed(1)} km/h`
+
+            : "-- km/h";
+
+
+        // ---------------------------------------------
+        // LOCATION
+        // ---------------------------------------------
+
+        document.getElementById(
+          "location"
+        ).textContent =
+
+          `${data.latitude.toFixed(6)}, ` +
+
+          `${data.longitude.toFixed(6)}`;
+
+
+        // ---------------------------------------------
+        // STATUS
+        // ---------------------------------------------
+
+        const status =
+          document.getElementById(
+            "status"
+          );
+
+
+        if (
+          data.status ===
+          "ARRIVED"
+        ) {
+
+          status.textContent =
+            "🔵 ARRIVED";
+
+
+          status.style.background =
+            "#dbeafe";
+
+        } else {
+
+          status.textContent =
+            "🟢 EN ROUTE";
+
+
+          status.style.background =
+            "#e5f6e8";
+
+        }
+
+
+        // ---------------------------------------------
+        // TRAFFIC
+        // ---------------------------------------------
+
+        const traffic =
+          document.getElementById(
+            "traffic"
+          );
+
+
+        const trafficCondition =
+          data.trafficCondition ||
+          "NORMAL";
+
+
+        traffic.textContent =
+          trafficCondition;
+
+
+        traffic.className =
+          "traffic " +
+          trafficCondition.toLowerCase();
+
+
+        // ---------------------------------------------
+        // LAST UPDATE
+        // ---------------------------------------------
+
+        document.getElementById(
+          "lastUpdate"
+        ).textContent =
+
+          new Date(
+            data.timestamp
+          ).toLocaleTimeString();
+
+
+        // ---------------------------------------------
+        // EVENT
+        // ---------------------------------------------
+
+        addEvent(
+
+          `Location updated | ` +
+
+          `${data.latitude.toFixed(5)}, ` +
+
+          `${data.longitude.toFixed(5)} | ` +
+
+          `ETA ${etaMinutes.toFixed(2)} min`
+
+        );
+
+      }
+    );
+
+
+    // =================================================
+    // EVENT LOGGER
+    // =================================================
+
+    function addEvent(
+      message
+    ) {
+
+      const eventLog =
+        document.getElementById(
+          "eventLog"
+        );
+
+
+      const event =
+        document.createElement(
+          "div"
+        );
+
+
+      event.className =
+        "event";
+
+
+      const time =
+        new Date()
+          .toLocaleTimeString();
+
+
+      event.innerHTML =
+
+        `<span class="timestamp">` +
+
+        `${time}` +
+
+        `</span> — ` +
+
+        `${message}`;
+
+
+      eventLog.prepend(
+        event
+      );
+
+
+      // Keep last 20 events
+
+      while (
+        eventLog.children.length >
+        20
+      ) {
+
+        eventLog.removeChild(
+          eventLog.lastChild
+        );
+
+      }
+
+    }
+
+
+    // =================================================
+    // START
+    // =================================================
+
+    loadRoute();
+
+
+  </script>
+
+</body>
+
+</html>
