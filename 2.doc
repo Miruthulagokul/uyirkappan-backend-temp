@@ -1,0 +1,1049 @@
+Module 6 — Live Tracking, ETA & Cascading Fallback
+Complete End-to-End Technical Documentation
+The Live Tracking, ETA & Cascading Fallback Module is responsible for two closely connected requirements of UyirKappan:
+1.	Continuously monitoring the assigned ambulance and communicating its current status/ETA to stakeholders.
+2.	Ensuring that an emergency request does not remain unattended when an assigned ambulance rejects or fails to respond.
+The module connects the Driver Application, Backend, Bystander Application, Hospital Dashboard, and Intelligent Dispatch Engine into one continuous response workflow.
+The first-review architecture already identifies live location updates from the driver, backend-mediated real-time communication, ETA updates to the bystander and hospital, and cascading fallback when an assigned ambulance rejects or times out.
+________________________________________
+1. Purpose of the Module
+The module's primary objective is:
+Maintain continuous visibility of an active emergency response while automatically recovering from failed ambulance assignments.
+The complete flow is:
+Ambulance Assigned
+       ↓
+Driver Accepts
+       ↓
+Live Location Tracking
+       ↓
+ETA Calculation
+       ↓
+Bystander + Hospital Updates
+       ↓
+Ambulance Movement
+       ↓
+ETA Recalculation
+       ↓
+Patient Arrival
+       ↓
+Hospital Journey
+       ↓
+Completion
+If the driver does not accept:
+Ambulance Assigned
+       ↓
+Reject / Timeout
+       ↓
+Cascading Fallback
+       ↓
+Dispatch Engine Re-run
+       ↓
+Next Best Ambulance
+       ↓
+Driver Assignment
+________________________________________
+2. Position in the Overall Architecture
+                    ┌──────────────────┐
+                    │ Bystander App    │
+                    └────────┬─────────┘
+                             │
+                      Emergency Request
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │     Backend      │
+                    └────────┬─────────┘
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │ Intelligent      │
+                    │ Dispatch Engine  │
+                    └────────┬─────────┘
+                             │
+                       Assignment
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │ Driver App       │
+                    └────────┬─────────┘
+                             │
+                   GPS / Status Updates
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │     Backend      │
+                    └──────┬─────┬─────┘
+                           │     │
+                   WebSocket     │
+                           │     │
+                           ▼     ▼
+                    Bystander   Hospital
+                       App      Dashboard
+The fallback path is:
+Driver
+  │
+  ├── ACCEPT ───────────► Live Tracking
+  │
+  ├── REJECT
+  │
+  └── TIMEOUT
+        │
+        ▼
+Cascading Fallback
+        │
+        ▼
+Intelligent Dispatch Engine
+        │
+        ▼
+Next Candidate
+________________________________________
+3. Why Live Tracking Is Required
+A conventional dispatch system may simply tell the user:
+"Ambulance assigned."
+UyirKappan goes further.
+The bystander should be able to see:
+Ambulance Assigned
+       ↓
+Ambulance Accepted
+       ↓
+Ambulance Location
+       ↓
+Current ETA
+       ↓
+Arrival
+This provides continuous visibility instead of leaving the user uncertain about what is happening.
+The hospital simultaneously receives the same relevant response information, allowing it to prepare for the incoming patient.
+________________________________________
+4. Location Tracking
+Once the driver accepts an emergency:
+ACCEPTED
+   ↓
+EN_ROUTE_TO_PATIENT
+The Driver Application begins sending location information.
+Conceptually:
+LocationUpdate
+│
+├── ambulanceId
+├── requestId
+├── latitude
+├── longitude
+├── speed
+├── heading
+└── timestamp
+Example:
+AMB-03
+
+Latitude: 13.xxxxxx
+Longitude: 80.xxxxxx
+Speed: 38 km/h
+Timestamp: 10:05:10
+________________________________________
+5. Location Update Pipeline
+The complete pipeline is:
+Driver Application
+       ↓
+GPS / Simulation Position
+       ↓
+Location Update
+       ↓
+Backend
+       ↓
+Validate Update
+       ↓
+Store / Process
+       ↓
+Broadcast
+       ↓
+┌──────────────┬───────────────┐
+▼              ▼               ▼
+Bystander     Hospital      Monitoring
+In the simulation, the GPS component is replaced by the virtual ambulance movement engine.
+________________________________________
+6. Real-Time Communication
+For live updates, the system can use WebSocket-based communication.
+Conceptually:
+Driver
+  │
+  │ location
+  ▼
+Backend
+  │
+  ├────────────► Bystander
+  │
+  └────────────► Hospital
+Instead of repeatedly asking:
+"Where is the ambulance?"
+the backend pushes new information when the ambulance's state changes.
+The project architecture discussed WebSocket/polling for real-time communication.
+________________________________________
+7. Simulation of Live Movement
+Since the current implementation is a controlled simulation, the ambulance does not need a physical vehicle.
+A virtual ambulance can move through the virtual road graph.
+Example:
+Node 10
+   ↓
+Node 12
+   ↓
+Node 14
+   ↓
+Node 18
+   ↓
+Node 22
+Every simulation interval:
+Current Position
+      ↓
+Determine next road segment
+      ↓
+Apply speed/traffic
+      ↓
+Move ambulance
+      ↓
+Generate new coordinates
+      ↓
+Send update to backend
+The Bystander Application then sees the ambulance marker move on the map.
+________________________________________
+8. Location Update Frequency
+The system can use a configurable update interval.
+For example:
+Every 1 second
+Every 2 seconds
+Every 5 seconds
+For the simulation, the interval can be accelerated so that a complete journey can be demonstrated quickly.
+The important point is that the architecture should support continuous/periodic updates, rather than a single location captured at assignment time.
+________________________________________
+9. ETA Calculation
+ETA represents the expected remaining travel time.
+Conceptually:
+Current Ambulance Location
+            +
+Destination
+            +
+Current Route
+            +
+Current Traffic
+            ↓
+       ETA Calculation
+Example:
+Current location:
+Node 18
+
+Destination:
+Node 30
+
+Estimated travel:
+8 minutes
+The ETA is sent to:
+Bystander
+Hospital
+Driver
+________________________________________
+10. Dynamic ETA
+ETA should change as the ambulance moves.
+Example:
+10:00
+Distance = 6 km
+ETA = 10 min
+After movement:
+10:03
+Distance = 4 km
+ETA = 7 min
+Traffic increases:
+10:05
+Distance = 3 km
+ETA = 8 min
+Traffic clears:
+10:07
+Distance = 2 km
+ETA = 4 min
+Therefore:
+ETA is a continuously updated estimate, not a fixed value generated only when the ambulance is assigned.
+________________________________________
+11. ETA Calculation in the Simulation
+The simulation can calculate ETA using the current virtual route.
+Suppose:
+Route:
+
+A → B → C → D
+Remaining road segments:
+B → C = 2 min
+C → D = 3 min
+Therefore:
+ETA = 2 + 3
+    = 5 minutes
+If traffic changes:
+B → C = 4 min
+C → D = 3 min
+
+New ETA = 7 minutes
+This makes the ETA responsive to simulated traffic conditions.
+________________________________________
+12. Route Changes
+Suppose the ambulance is travelling:
+A → B → C → D
+and:
+C → D = CLOSED
+The system can calculate an alternative route:
+A → B → E → F → D
+The ETA is recalculated based on the new route.
+Old ETA = 5 min
+New ETA = 8 min
+The updated ETA is propagated to the relevant applications.
+________________________________________
+13. Status Synchronization
+The module maintains the current emergency status.
+Recommended lifecycle:
+ASSIGNED
+   ↓
+ACCEPTED
+   ↓
+EN_ROUTE_TO_PATIENT
+   ↓
+ARRIVED_AT_PATIENT
+   ↓
+PATIENT_ONBOARD
+   ↓
+EN_ROUTE_TO_HOSPITAL
+   ↓
+ARRIVED_AT_HOSPITAL
+   ↓
+COMPLETED
+Every important state transition is sent through the backend.
+________________________________________
+14. Bystander View
+The bystander can see:
+┌─────────────────────────────┐
+│       EMERGENCY ACTIVE      │
+│                             │
+│          MAP                │
+│                             │
+│       🚑 ─────── 🚨         │
+│                             │
+│ Ambulance: AMB-03           │
+│ Status: En Route            │
+│ ETA: 06 minutes             │
+│                             │
+│ Last update: Just now       │
+└─────────────────────────────┘
+As the ambulance moves:
+🚑 ───────── 🚨
+becomes:
+──── 🚑 ──── 🚨
+and finally:
+──────────── 🚑🚨
+________________________________________
+15. Hospital View
+The Hospital Dashboard receives the same active-response information.
+Example:
+┌───────────────────────────────┐
+│ INCOMING EMERGENCY            │
+│                               │
+│ Type: Cardiac                 │
+│ Victims: 1                    │
+│ Ambulance: AMB-03             │
+│                               │
+│ ETA: 06 minutes               │
+│ Status: En Route              │
+│                               │
+│ ICU Availability: 2           │
+└───────────────────────────────┘
+This allows the hospital to prepare before the ambulance reaches the facility.
+________________________________________
+16. Cascading Fallback
+The second major responsibility of this module is dispatch resilience.
+Suppose the Intelligent Dispatch Engine selects:
+AMB-03
+The backend sends the assignment.
+Now there are three possible outcomes:
+                Assignment
+                    │
+          ┌─────────┼─────────┐
+          ▼         ▼         ▼
+       ACCEPT     REJECT    TIMEOUT
+          │         │         │
+          ▼         └────┬────┘
+       Continue           │
+                          ▼
+                     FALLBACK
+________________________________________
+17. Why Fallback Is Necessary
+Consider:
+Emergency
+   ↓
+AMB-03 selected
+   ↓
+Driver doesn't respond
+If the system simply waits:
+Emergency request remains pending
+This defeats the purpose of an emergency-response platform.
+Instead:
+AMB-03
+  ↓
+Timeout
+  ↓
+Immediately trigger fallback
+The request remains active.
+The bystander does not have to submit another request.
+________________________________________
+18. Fallback Trigger Conditions
+The fallback mechanism can be triggered by:
+Driver rejection
+Driver → REJECT
+Driver timeout
+Assignment sent
+       ↓
+No response
+       ↓
+Timeout
+Ambulance becoming unavailable
+Assigned ambulance
+       ↓
+Offline / unavailable
+The exact timeout duration should be configurable in the simulation.
+________________________________________
+19. Fallback Process
+The complete fallback flow:
+Assignment Created
+       ↓
+Send to Driver
+       ↓
+Start Response Timer
+       ↓
+Wait
+       ↓
+Driver Response?
+     /       \
+   YES        NO
+    │          │
+ ACCEPT     TIMEOUT
+    │          │
+    │          ▼
+    │       Mark Failed
+    │          │
+    │          ▼
+    │      Exclude Ambulance
+    │          │
+    │          ▼
+    │    Re-run Dispatch
+    │          │
+    │          ▼
+    │    Select Next Best
+    │          │
+    │          ▼
+    │    Send Assignment
+    │
+    ▼
+Continue
+________________________________________
+20. Re-running the Intelligent Dispatch Engine
+The fallback mechanism should not implement a completely separate ambulance-selection algorithm.
+Instead:
+Fallback
+   ↓
+Update request state
+   ↓
+Exclude failed ambulance
+   ↓
+Call Intelligent Dispatch Engine
+Example:
+Initial candidates:
+
+A1
+A2
+A3
+A4
+
+Selected:
+A2
+A2 rejects.
+Excluded:
+A2
+Engine evaluates:
+A1
+A3
+A4
+Suppose A3 is now best.
+A3 → assigned
+________________________________________
+21. Cascading Multiple Failures
+The system can continue the process.
+Example:
+Emergency
+   ↓
+A2 selected
+   ↓
+A2 timeout
+   ↓
+A3 selected
+   ↓
+A3 rejects
+   ↓
+A1 selected
+   ↓
+A1 accepts
+This is why it is called:
+Cascading Fallback Dispatch
+because the assignment cascades from one candidate to another until an ambulance accepts or the candidate pool is exhausted.
+________________________________________
+22. Attempt History
+Every attempt should be recorded.
+Example:
+Request: UK-0001
+
+Attempt 1
+────────────
+Ambulance: A2
+Time: 10:01:02
+Result: TIMEOUT
+
+Attempt 2
+────────────
+Ambulance: A3
+Time: 10:01:14
+Result: REJECTED
+
+Attempt 3
+────────────
+Ambulance: A1
+Time: 10:01:27
+Result: ACCEPTED
+This creates a complete audit trail.
+________________________________________
+23. request_attempts Concept
+A dedicated attempt record can contain:
+requestId
+attemptNumber
+ambulanceId
+assignedAt
+responseAt
+response
+failureReason
+Example:
+{
+    requestId: "UK-0001",
+    attemptNumber: 2,
+    ambulanceId: "AMB-03",
+    response: "REJECTED"
+}
+This also allows the research team to calculate:
+Average attempts per request
+Fallback frequency
+Average fallback delay
+Assignment success rate
+________________________________________
+24. Preventing Duplicate Assignment
+A critical backend rule is:
+Only one ambulance should be the active responder for a request at a time.
+Suppose:
+A1 assigned
+before A1 responds, the system must not simultaneously assign A2 unless the configured timeout/failure condition has occurred.
+After A1 times out:
+A1 → failed
+A2 → active assignment
+The request state should be updated atomically to prevent conflicting assignments.
+________________________________________
+25. Fallback Candidate Exclusion
+Failed candidates must be excluded from the current request.
+Example:
+Request UK-001
+
+Failed:
+A1
+A3
+
+Available candidates:
+A2
+A4
+A5
+The dispatch engine must not immediately select A1/A3 again.
+________________________________________
+26. No Ambulance Available
+Eventually, the candidate pool may become empty.
+A1 → Failed
+A2 → Failed
+A3 → Failed
+A4 → Out of range
+Then:
+Candidates remaining = 0
+The system changes the request to:
+NO_AMBULANCE_AVAILABLE
+The bystander should receive an appropriate notification.
+The simulation should record this as a failed dispatch scenario rather than hiding it.
+________________________________________
+27. Combined Live Tracking + Fallback Flow
+These two mechanisms work together.
+                Emergency
+                    │
+                    ▼
+              Dispatch Engine
+                    │
+                    ▼
+                 AMB-01
+                    │
+              Assignment
+                    │
+             ┌──────┴──────┐
+             ▼             ▼
+          ACCEPT       REJECT/TIMEOUT
+             │             │
+             │             ▼
+             │          Fallback
+             │             │
+             │             ▼
+             │         AMB-02
+             │             │
+             │          ACCEPT
+             │             │
+             └──────┬──────┘
+                    ▼
+              Live Tracking
+                    │
+                    ▼
+              ETA Updates
+                    │
+          ┌─────────┴─────────┐
+          ▼                   ▼
+      Bystander            Hospital
+          │                   │
+          ▼                   ▼
+       Arrival             Preparation
+________________________________________
+28. Complete Simulation Example
+Consider:
+Emergency:
+Cardiac
+
+Location:
+Node 50
+Dispatch Engine selects:
+AMB-04
+Expected ETA = 8 min
+Assignment:
+10:00:00
+AMB-04 assigned
+Driver doesn't respond.
+10:00:10
+TIMEOUT
+Fallback begins:
+10:00:11
+AMB-04 excluded
+Dispatch engine re-runs:
+AMB-02 → ETA 9 min
+AMB-03 → ETA 11 min
+AMB-05 → ETA 13 min
+Select:
+AMB-02
+Driver accepts:
+10:00:13
+AMB-02 ACCEPTED
+Tracking starts:
+10:00:14
+AMB-02 → Node 21
+ETA = 9 min
+10:02
+AMB-02 → Node 24
+ETA = 7 min
+Traffic increases:
+10:04
+ETA = 8 min
+Traffic clears:
+10:06
+ETA = 5 min
+Patient reached:
+10:11
+ARRIVED_AT_PATIENT
+Patient onboard:
+10:12
+PATIENT_ONBOARD
+Hospital journey:
+10:12
+EN_ROUTE_TO_HOSPITAL
+Hospital reached:
+10:20
+ARRIVED_AT_HOSPITAL
+Request:
+COMPLETED
+________________________________________
+29. Metrics Generated by This Module
+This module provides important research data.
+Fallback frequency
+Number of requests requiring fallback
+-------------------------------------
+Total requests
+Average fallback delay
+Fallback triggered
+        ↓
+Next ambulance accepted
+Measure the elapsed time.
+Assignment success rate
+Successful assignments
+----------------------
+Total requests
+ETA accuracy
+Compare:
+Predicted ETA
+vs.
+Actual simulated arrival time
+Tracking reliability
+Measure:
+Expected location updates
+vs.
+Received location updates
+________________________________________
+30. Response-Time Measurement
+The complete response timeline can be captured.
+T0 = Emergency request created
+T1 = First ambulance assigned
+T2 = First driver response / timeout
+T3 = Fallback triggered
+T4 = Second ambulance assigned
+T5 = Driver accepts
+T6 = Ambulance starts movement
+T7 = Patient reached
+Important metrics:
+Initial dispatch latency
+= T1 - T0
+
+Fallback delay
+= T4 - T3
+
+Driver response time
+= T5 - T4
+
+Travel time
+= T7 - T6
+
+Total response time
+= T7 - T0
+This is directly useful when evaluating the project's 12-minute target.
+________________________________________
+31. 12-Minute Target Evaluation
+The system should not claim that it automatically achieves 12 minutes.
+Instead:
+Target
+  ↓
+≈ 12 minutes
+  ↓
+Simulation
+  ↓
+Run multiple scenarios
+  ↓
+Measure actual response time
+  ↓
+Optimize
+  ↓
+Run again
+For example, the simulation might produce:
+Baseline:
+15.2 minutes
+
+UyirKappan:
+12.8 minutes
+After optimization:
+UyirKappan:
+11.9 minutes
+Only the measured values should be reported as experimental results.
+________________________________________
+32. Simulation Scenarios
+The team should test multiple scenarios.
+Scenario A — Normal
+Assignment → Accept → Track → Arrival
+Scenario B — First Driver Rejects
+A1 → Reject
+A2 → Accept
+Scenario C — First Driver Times Out
+A1 → Timeout
+A2 → Accept
+Scenario D — Multiple Failures
+A1 → Timeout
+A2 → Reject
+A3 → Accept
+Scenario E — Traffic Increase
+Route selected
+       ↓
+Traffic increases
+       ↓
+ETA increases
+Scenario F — Road Closure
+Current route
+       ↓
+Road closed
+       ↓
+Alternative route
+       ↓
+ETA recalculated
+Scenario G — No Available Ambulance
+All candidates unavailable
+       ↓
+No assignment
+________________________________________
+33. Suggested Real-Time Events
+The WebSocket layer can use events such as:
+ASSIGNMENT_CREATED
+ASSIGNMENT_ACCEPTED
+ASSIGNMENT_REJECTED
+ASSIGNMENT_TIMEOUT
+
+FALLBACK_STARTED
+FALLBACK_ASSIGNMENT_CREATED
+
+AMBULANCE_LOCATION_UPDATED
+ETA_UPDATED
+ROUTE_UPDATED
+
+AMBULANCE_ARRIVED
+PATIENT_ONBOARD
+HOSPITAL_ARRIVED
+REQUEST_COMPLETED
+The exact event naming can be finalized during implementation.
+________________________________________
+34. Suggested APIs
+The backend can expose endpoints such as:
+POST /api/ambulances/:id/location
+
+GET /api/requests/:id/tracking
+
+GET /api/requests/:id/eta
+
+GET /api/requests/:id/attempts
+
+POST /api/assignments/:id/accept
+
+POST /api/assignments/:id/reject
+Real-time:
+WebSocket
+/ws/emergency/:requestId
+The WebSocket channel can broadcast:
+LOCATION_UPDATED
+ETA_UPDATED
+STATUS_UPDATED
+FALLBACK_TRIGGERED
+________________________________________
+35. Database Information
+The module interacts with:
+Location History
+ambulanceId
+requestId
+latitude
+longitude
+speed
+timestamp
+Assignment Attempts
+requestId
+attemptNumber
+ambulanceId
+assignedAt
+responseAt
+response
+Emergency Request
+requestId
+currentAmbulanceId
+status
+currentETA
+updatedAt
+This enables the entire response journey to be reconstructed later.
+________________________________________
+36. Failure Handling
+Driver rejects
+Reject
+ ↓
+Record attempt
+ ↓
+Exclude ambulance
+ ↓
+Fallback
+Driver timeout
+Timer expires
+ ↓
+Record timeout
+ ↓
+Exclude ambulance
+ ↓
+Fallback
+Location update unavailable
+No new location
+ ↓
+Last known location retained
+ ↓
+Mark update as stale
+Route unavailable
+Current route blocked
+ ↓
+Recalculate route
+ ↓
+Update ETA
+No candidates
+Candidate pool empty
+ ↓
+NO_AMBULANCE_AVAILABLE
+________________________________________
+37. Future Real-World Conversion
+The module is intentionally designed so the simulation components can later be replaced.
+Current
+Virtual Ambulance
+       ↓
+Simulated Location
+       ↓
+Backend
+       ↓
+WebSocket
+       ↓
+Bystander + Hospital
+Future
+Real Ambulance
+       ↓
+Driver Phone GPS
+       ↓
+Backend
+       ↓
+WebSocket
+       ↓
+Bystander + Hospital
+Similarly:
+Simulated Driver Timeout
+        ↓
+Real Driver Non-response
+and:
+Simulated Traffic
+        ↓
+Real-Time Traffic Data
+The core state-management and fallback architecture remains conceptually the same.
+________________________________________
+38. Module Integration
+This module connects several other modules:
+Module 1
+Bystander
+   │
+   ▼
+Emergency Request
+   │
+   ▼
+Module 5
+Intelligent Dispatch
+   │
+   ▼
+Module 2
+Driver Application
+   │
+   ▼
+Module 6
+Live Tracking + ETA
+   │
+   ├──────────► Module 1
+   │
+   └──────────► Module 3
+                  Hospital
+For fallback:
+Module 6
+Fallback Trigger
+      ↓
+Module 5
+Dispatch Engine
+      ↓
+Module 2
+Next Driver
+________________________________________
+39. Complete End-to-End Module Flow
+                    EMERGENCY
+                       │
+                       ▼
+                Ambulance Selected
+                       │
+                       ▼
+                Assignment Sent
+                       │
+              ┌────────┴────────┐
+              │                 │
+           ACCEPT          REJECT/TIMEOUT
+              │                 │
+              │                 ▼
+              │             Record Attempt
+              │                 │
+              │                 ▼
+              │          Exclude Ambulance
+              │                 │
+              │                 ▼
+              │          Re-run Dispatch
+              │                 │
+              │                 ▼
+              │          Next Ambulance
+              │                 │
+              │              ACCEPT
+              │                 │
+              └────────┬────────┘
+                       ▼
+               EN ROUTE TO PATIENT
+                       │
+                       ▼
+               Location Updates
+                       │
+                       ▼
+                 ETA Calculation
+                       │
+             ┌─────────┴─────────┐
+             ▼                   ▼
+        BYSTANDER             HOSPITAL
+             │                   │
+             └─────────┬─────────┘
+                       ▼
+                Traffic Change?
+                       │
+                 ┌─────┴─────┐
+                YES           NO
+                 │             │
+                 ▼             │
+          Recalculate ETA      │
+                 │             │
+                 └──────┬──────┘
+                        ▼
+                 Patient Arrived
+                        │
+                        ▼
+                  Patient Onboard
+                        │
+                        ▼
+                 En Route Hospital
+                        │
+                        ▼
+                 Hospital Arrived
+                        │
+                        ▼
+                    COMPLETED
+________________________________________
+40. Final Definition of Module 6
+Live Tracking, ETA & Cascading Fallback
+The Live Tracking, ETA & Cascading Fallback module provides continuous visibility and resilience throughout the UyirKappan emergency-response lifecycle. After an ambulance accepts an assignment, its simulated/real location is continuously transmitted to the backend and propagated to the bystander application and hospital dashboard through real-time communication. The system continuously recalculates the ambulance's expected arrival time based on its current position, remaining route, and simulated traffic conditions, allowing ETA and route information to change dynamically. In parallel, the cascading fallback mechanism monitors ambulance assignment responses and automatically triggers re-dispatch when a selected ambulance rejects or fails to respond within a configurable timeout. The failed ambulance is recorded and excluded from subsequent attempts, after which the Intelligent Dispatch Engine is invoked again to identify the next suitable candidate. The process continues until an ambulance accepts or no suitable candidates remain. The initial implementation will reproduce these behaviors using simulated ambulance movement, virtual traffic, configurable driver responses, and controlled emergency scenarios, generating measurable data for response-time, fallback, ETA, and reliability evaluation.
+Core implementation pipeline
+Assignment
+    ↓
+Driver Response
+    ↓
+ ┌───────────────┐
+ │               │
+ACCEPT       REJECT/TIMEOUT
+ │               │
+ ▼               ▼
+Tracking       Fallback
+ │               │
+ ▼               ▼
+ETA          Re-run Dispatch
+ │               │
+ ▼               ▼
+Bystander    Next Ambulance
+ │               │
+ ▼               ▼
+Hospital       Accept
+ │               │
+ └───────┬───────┘
+         ▼
+   Live Tracking
+         ↓
+    Dynamic ETA
+         ↓
+   Patient Arrival
+         ↓
+  Hospital Arrival
+         ↓
+      Complete
+This module is effectively the "response continuity" layer of UyirKappan: the Intelligent Dispatch Engine decides who should respond, while this module ensures that the response continues to be monitored and that a failed assignment automatically transitions to the next suitable ambulance.
+

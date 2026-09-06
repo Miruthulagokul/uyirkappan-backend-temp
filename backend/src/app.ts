@@ -6,6 +6,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 
 import trackingRoutes from "./modules/tracking/tracking.routes.js";
+import dispatchRoutes from "./modules/dispatch/dispatch.routes.js";
 
 
 const app = express();
@@ -43,6 +44,11 @@ app.use(
 app.use(
   "/api/tracking",
   trackingRoutes
+);
+
+app.use(
+  "/api",
+  dispatchRoutes
 );
 
 

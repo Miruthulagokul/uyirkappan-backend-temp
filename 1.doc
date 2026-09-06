@@ -1,0 +1,1003 @@
+Module 5 — Intelligent Dispatch Engine
+Complete End-to-End Technical Documentation
+The Intelligent Dispatch Engine is the core decision-making module of UyirKappan. Its responsibility is to determine which available ambulance should be assigned to an emergency request.
+The key idea is that the system should not simply select the ambulance with the smallest geographic distance. Instead, it evaluates available ambulances using travel-related factors such as distance, traffic conditions, route travel time, and availability, and selects the candidate with the best expected response.
+For the initial implementation, this engine will operate completely inside the controlled simulation environment. Virtual ambulances, a virtual road network, simulated traffic conditions, and emergency requests will allow the team to test and measure the dispatch algorithm before considering real-world integration.
+________________________________________
+1. Purpose of the Module
+The primary objective is:
+Given an emergency request and a set of available ambulances, identify the ambulance expected to reach the emergency location most efficiently under the current simulated conditions.
+The engine must answer:
+Emergency occurs at Location P.
+
+Available:
+A1
+A2
+A3
+A4
+
+Which ambulance should respond?
+Instead of:
+Nearest ambulance → selected
+UyirKappan evaluates:
+Location
++
+Road distance
++
+Traffic
++
+Route travel time
++
+Ambulance availability
++
+Other configured constraints
+        ↓
+Best candidate
+________________________________________
+2. Position in the Overall Architecture
+The Intelligent Dispatch Engine sits between the Backend and the Driver/Ambulance Applications.
+                    ┌──────────────────┐
+                    │    Bystander     │
+                    │   Application    │
+                    └────────┬─────────┘
+                             │
+                      Emergency Request
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │     Backend      │
+                    │      API         │
+                    └────────┬─────────┘
+                             │
+                             ▼
+              ┌────────────────────────────┐
+              │  INTELLIGENT DISPATCH      │
+              │          ENGINE            │
+              │                            │
+              │ Candidate Discovery        │
+              │ Route Calculation          │
+              │ Traffic Evaluation         │
+              │ Scoring                    │
+              │ Candidate Selection        │
+              └─────────────┬──────────────┘
+                            │
+                     Selected Ambulance
+                            │
+                            ▼
+                    ┌──────────────────┐
+                    │ Driver /         │
+                    │ Ambulance App    │
+                    └──────────────────┘
+The engine itself does not directly control the driver's application.
+It produces a dispatch decision, which the backend delivers to the selected ambulance.
+________________________________________
+3. Complete Dispatch Flow
+The end-to-end flow is:
+Emergency Request
+        ↓
+Backend validates request
+        ↓
+Dispatch Engine triggered
+        ↓
+Find available ambulances
+        ↓
+Filter unsuitable candidates
+        ↓
+Calculate route for candidates
+        ↓
+Evaluate traffic conditions
+        ↓
+Calculate expected travel time
+        ↓
+Calculate candidate score
+        ↓
+Rank candidates
+        ↓
+Select best candidate
+        ↓
+Create assignment
+        ↓
+Send assignment to driver
+        ↓
+Wait for acceptance
+        ↓
+Accepted?
+    /       \
+  YES        NO/TIMEOUT
+   │             │
+   ▼             ▼
+ Dispatch       Fallback
+ continues      mechanism
+________________________________________
+4. Input to the Dispatch Engine
+The engine receives an emergency request.
+Conceptually:
+EmergencyRequest
+│
+├── requestId
+├── emergencyType
+├── victimCount
+├── pickupLocation
+│     ├── latitude
+│     └── longitude
+├── createdAt
+└── priority
+Example:
+Request ID: UK-0001
+Emergency: Cardiac
+Victims: 1
+Location: (13.xxxxxx, 80.xxxxxx)
+Priority: HIGH
+The engine also receives/accesses the current ambulance state.
+________________________________________
+5. Ambulance Information
+Each ambulance maintains information such as:
+Ambulance
+│
+├── ambulanceId
+├── currentLocation
+├── availabilityStatus
+├── currentRequest
+├── driverId
+└── capabilities
+Example:
+AMB-01
+Location: Node 15
+Status: AVAILABLE
+Driver: DRV-01
+Only appropriate ambulances should enter the candidate-selection process.
+________________________________________
+6. Candidate Discovery
+The first step is to identify ambulances that could potentially respond.
+Example:
+All ambulances:
+
+A1 → AVAILABLE
+A2 → BUSY
+A3 → AVAILABLE
+A4 → OFFLINE
+A5 → AVAILABLE
+The engine filters:
+A1
+A3
+A5
+The unavailable ambulances are not considered.
+________________________________________
+7. Candidate Filtering
+Candidate filtering can be performed before expensive route calculations.
+Possible filters include:
+Availability
+AVAILABLE → eligible
+BUSY       → exclude
+OFFLINE    → exclude
+Location
+Ambulances beyond the configured search radius can initially be excluded.
+Example:
+Emergency
+     ●
+
+5 km radius
+
+A1 ✓
+A2 ✓
+A3 ✓
+A4 ✗
+The radius should be configurable for the simulation.
+________________________________________
+8. Why Geographic Distance Alone Is Not Enough
+Consider:
+Emergency = E
+Two ambulances:
+A1 = 2 km away
+A2 = 4 km away
+A simple nearest-ambulance algorithm selects:
+A1
+But suppose:
+A1 → heavy traffic → ETA 15 min
+
+A2 → clear road → ETA 8 min
+Then:
+A2 is farther geographically
+
+but
+
+A2 reaches the patient faster.
+Therefore, the dispatch engine should evaluate expected travel time, not merely straight-line distance.
+This is the central reasoning behind the intelligent matching component.
+________________________________________
+9. Virtual Road Network
+For the simulation, the team needs a representation of roads.
+The road network can be modeled as a weighted graph.
+        B
+      /   \
+     /     \
+    A       D
+     \     /
+      \   /
+        C
+Each:
+•	Node = junction/location
+•	Edge = road segment
+•	Weight = travel cost/time
+Example:
+A → B = 4 minutes
+A → C = 2 minutes
+B → D = 5 minutes
+C → D = 3 minutes
+The engine can therefore calculate:
+A → C → D
+instead of simply assuming:
+A → B → D
+________________________________________
+10. Dijkstra's Algorithm
+For the initial simulation, Dijkstra's shortest-path algorithm can be used to calculate the minimum-cost route through the virtual road network.
+Suppose:
+A → B = 5
+A → C = 2
+C → B = 1
+B → D = 3
+C → D = 8
+Dijkstra evaluates the possible paths.
+A → B → D
+= 5 + 3
+= 8
+
+A → C → D
+= 2 + 8
+= 10
+
+A → C → B → D
+= 2 + 1 + 3
+= 6
+Therefore:
+Shortest route:
+
+A → C → B → D
+
+Cost = 6
+The dispatch engine can use this route cost when evaluating ambulance candidates.
+________________________________________
+11. Traffic Simulation
+The simulation should not keep every road at a fixed travel speed.
+Instead, each road segment can have a traffic state.
+For example:
+Road A → B
+
+Normal:
+5 minutes
+
+Moderate traffic:
+8 minutes
+
+Heavy traffic:
+14 minutes
+
+Blocked:
+∞ / unavailable
+This allows the simulation to reproduce different traffic conditions.
+________________________________________
+12. Dynamic Road Weight
+The edge weight in the graph can therefore change according to traffic.
+Example:
+Normal:
+
+A ────5 min──── B
+Traffic increases:
+A ────12 min─── B
+Road closure:
+A ──── CLOSED ── B
+Dijkstra then calculates the route using the current edge weights.
+This creates a traffic-aware simulation rather than a static shortest-path demonstration.
+________________________________________
+13. Travel-Time Calculation
+For every candidate ambulance:
+Current Ambulance Location
+          ↓
+Emergency Location
+          ↓
+Find shortest route
+          ↓
+Calculate route travel time
+Example:
+AMB-01
+
+Route:
+N10 → N13 → N15 → N19
+
+Travel time:
+11 minutes
+AMB-02
+
+Route:
+N20 → N18 → N15 → N19
+
+Travel time:
+7 minutes
+The engine can therefore rank:
+AMB-02 → better expected response
+AMB-01 → second
+________________________________________
+14. Multi-Criteria Scoring
+Although travel time is the primary objective, the engine can use a configurable weighted score.
+Conceptually:
+Score =
+    Wt × TravelTime
+  + Wd × Distance
+  + Wttraffic × TrafficCost
+  + Wa × AvailabilityPenalty
+Where:
+•	TravelTime = estimated route travel time
+•	Distance = route distance
+•	TrafficCost = traffic-related cost
+•	AvailabilityPenalty = penalty for less favorable availability states
+•	W values = configurable weights
+The exact weights should be determined experimentally rather than arbitrarily claiming that one particular set is optimal.
+________________________________________
+15. Normalization
+The factors have different units.
+For example:
+Distance = kilometres
+Travel time = minutes
+Traffic = score
+Therefore, the implementation can normalize them before combining them.
+For example:
+Normalized Travel Time
+Normalized Distance
+Normalized Traffic
+Then:
+Final Score =
+0.50 × Travel Time
++ 0.20 × Distance
++ 0.20 × Traffic
++ 0.10 × Availability
+These numbers are example starting weights, not fixed scientific values.
+The team can experiment with different weight combinations and evaluate which performs better.
+________________________________________
+16. Example Candidate Evaluation
+Suppose an emergency occurs at:
+E = Node 30
+Available ambulances:
+A1 → Node 10
+A2 → Node 25
+A3 → Node 18
+The engine calculates:
+Ambulance	Distance	Traffic	Estimated Time
+A1	4.2 km	Heavy	13 min
+A2	3.5 km	Moderate	9 min
+A3	2.8 km	Heavy	12 min
+A purely geographic system might select:
+A3
+because it is only 2.8 km away.
+The intelligent engine selects:
+A2
+because its expected travel time is lower.
+________________________________________
+17. Candidate Ranking
+After evaluating all candidates:
+Candidates
+
+A1 → Score 0.78
+A2 → Score 0.42
+A3 → Score 0.65
+The engine sorts:
+1. A2
+2. A3
+3. A1
+Then:
+Primary candidate = A2
+The remaining candidates can be retained as potential fallback candidates.
+________________________________________
+18. Dispatch Decision
+The engine returns a dispatch decision to the backend.
+Conceptually:
+DispatchDecision
+│
+├── requestId
+├── selectedAmbulanceId
+├── estimatedTravelTime
+├── route
+├── distance
+├── score
+└── generatedAt
+Example:
+Request: UK-0001
+
+Selected:
+AMB-02
+
+ETA:
+9 minutes
+
+Distance:
+3.5 km
+
+Route:
+N25 → N27 → N29 → N30
+The backend then creates the assignment.
+________________________________________
+19. Assignment to Driver
+The backend sends:
+AMB-02
+     ↓
+Driver Application
+The driver sees:
+🚨 NEW EMERGENCY
+
+Request: UK-0001
+Emergency: Cardiac
+Victims: 1
+
+ETA: 9 minutes
+
+[ ACCEPT ]
+[ REJECT ]
+The dispatch engine has now completed its initial selection phase.
+________________________________________
+20. Interaction with Cascading Fallback
+The Intelligent Dispatch Engine should be designed so that it can be invoked repeatedly.
+Example:
+Initial ranking:
+
+A2
+A3
+A1
+A2 rejects.
+The engine is called again:
+Excluded:
+A2
+
+Remaining:
+A3
+A1
+It recalculates:
+A3 → Score 0.65
+A1 → Score 0.78
+Therefore:
+A3 selected
+If A3 also fails:
+Exclude A3
+
+Run matching again
+
+A1 selected
+This creates:
+Request
+ ↓
+Match
+ ↓
+A2
+ ↓
+Reject
+ ↓
+Re-match
+ ↓
+A3
+ ↓
+Reject
+ ↓
+Re-match
+ ↓
+A1
+The fallback mechanism is therefore not a separate matching algorithm.
+It repeatedly invokes the same dispatch engine with updated candidate exclusions.
+________________________________________
+21. Avoiding Repeated Selection
+The system must prevent the same failed ambulance from being immediately selected again.
+Maintain:
+Excluded Ambulances
+Example:
+Request UK-001
+
+Excluded:
+A2
+A3
+The next matching operation evaluates:
+A1
+A4
+A5
+rather than reconsidering A2/A3.
+This state should be maintained in the backend/request attempt history.
+________________________________________
+22. Request Attempt History
+Every dispatch attempt should be recorded.
+Example:
+Request: UK-001
+
+Attempt 1
+────────────
+Ambulance: A2
+Assigned: 10:00:02
+Response: TIMEOUT
+
+Attempt 2
+────────────
+Ambulance: A3
+Assigned: 10:00:13
+Response: REJECTED
+
+Attempt 3
+────────────
+Ambulance: A1
+Assigned: 10:00:25
+Response: ACCEPTED
+This information is extremely useful for research evaluation.
+________________________________________
+23. Dispatch Engine State Machine
+IDLE
+  ↓
+REQUEST_RECEIVED
+  ↓
+DISCOVER_CANDIDATES
+  ↓
+FILTER_CANDIDATES
+  ↓
+CALCULATE_ROUTES
+  ↓
+CALCULATE_TRAFFIC
+  ↓
+CALCULATE_SCORES
+  ↓
+RANK_CANDIDATES
+  ↓
+SELECT_BEST
+  ↓
+CREATE_ASSIGNMENT
+  ↓
+WAIT_FOR_RESPONSE
+If accepted:
+WAIT_FOR_RESPONSE
+       ↓
+    ACCEPTED
+       ↓
+    DISPATCHED
+If rejected:
+WAIT_FOR_RESPONSE
+       ↓
+    REJECTED
+       ↓
+ UPDATE EXCLUSIONS
+       ↓
+ DISCOVER CANDIDATES
+If timeout:
+WAIT_FOR_RESPONSE
+       ↓
+     TIMEOUT
+       ↓
+ UPDATE EXCLUSIONS
+       ↓
+ DISCOVER CANDIDATES
+________________________________________
+24. Real-Time Recalculation
+The engine should not assume that the initial conditions remain unchanged.
+For example:
+10:00
+
+A1 → ETA 8 min
+A2 → ETA 10 min
+A3 → ETA 12 min
+A road suddenly becomes congested:
+A1 route → heavy traffic
+New calculation:
+A1 → ETA 15 min
+A2 → ETA 10 min
+A3 → ETA 12 min
+The system can therefore choose A2 if the dispatch decision has not yet been finalized.
+During an active journey, ETA recalculation belongs primarily to the Live Tracking & ETA module, while the dispatch engine is responsible for the initial candidate selection and re-selection when fallback occurs.
+________________________________________
+25. Simulation Engine
+The complete dispatch simulation needs four major simulated components.
+┌──────────────────────────────┐
+│ Emergency Generator          │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Virtual Ambulance Generator  │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Virtual Road Network         │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ Traffic Simulator            │
+└──────────────┬───────────────┘
+               │
+               ▼
+        Dispatch Engine
+________________________________________
+26. Virtual Ambulance Generator
+The simulation can generate a fleet such as:
+AMB-01 → Node 12
+AMB-02 → Node 25
+AMB-03 → Node 18
+AMB-04 → Node 32
+AMB-05 → Node 40
+Each ambulance has:
+ID
+Location
+Availability
+Speed
+Driver behavior
+Example:
+AMB-03
+
+Location: Node 18
+Status: AVAILABLE
+Speed: 40 km/h
+Driver behavior: ACCEPT
+________________________________________
+27. Emergency Generator
+The simulation can generate emergency requests at different locations.
+Example:
+Emergency #001
+Location: Node 30
+Type: Cardiac
+Victims: 1
+Another:
+Emergency #002
+Location: Node 15
+Type: Accident
+Victims: 3
+This allows the team to test the system across many geographical configurations.
+________________________________________
+28. Traffic Simulator
+The simulation can assign traffic levels to road segments.
+Example:
+Road R1 → LOW
+Road R2 → MEDIUM
+Road R3 → HIGH
+Road R4 → CLOSED
+The traffic simulator modifies route weights accordingly.
+Traffic
+   ↓
+Road Weight
+   ↓
+Dijkstra
+   ↓
+New Route / ETA
+This is how the team can demonstrate that traffic actually affects dispatch decisions.
+________________________________________
+29. Simulation Dashboard
+For demonstration purposes, create an admin/research dashboard showing:
+┌─────────────────────────────────────────┐
+│       UYIRKAPPAN SIMULATION             │
+├─────────────────────────────────────────┤
+│ Active Emergencies: 3                   │
+│ Available Ambulances: 12                │
+│ Busy Ambulances: 5                      │
+│ Average Response Time:  X min           │
+│ Average Dispatch Time:   X sec          │
+│ Fallbacks:               X              │
+├─────────────────────────────────────────┤
+│                                         │
+│              VIRTUAL MAP                │
+│                                         │
+│  🚑 A1              🚨 Emergency        │
+│        🚑 A2                           │
+│              🚑 A3                     │
+│                                         │
+└─────────────────────────────────────────┘
+This gives evaluators a visible representation of what the algorithm is doing.
+________________________________________
+30. Baseline Algorithm
+To prove that the intelligent engine actually provides value, implement a baseline.
+Baseline:
+Find available ambulances
+        ↓
+Calculate geographic distance
+        ↓
+Select nearest
+No traffic-aware route optimization.
+________________________________________
+31. UyirKappan Algorithm
+The proposed approach:
+Find available ambulances
+        ↓
+Filter candidates
+        ↓
+Calculate road routes
+        ↓
+Apply traffic conditions
+        ↓
+Calculate expected travel time
+        ↓
+Calculate weighted score
+        ↓
+Rank candidates
+        ↓
+Select best candidate
+This allows a direct experimental comparison.
+________________________________________
+32. Experimental Example
+Suppose 100 simulated emergencies are generated.
+Run:
+Experiment A
+Nearest Ambulance
+Record:
+Average response time
+Then:
+Experiment B
+UyirKappan Dispatch Engine
+Record:
+Average response time
+Then compare:
+                 Baseline    UyirKappan
+
+Average ETA       X min        Y min
+Average response  X min        Y min
+Fallbacks         X             Y
+Failed requests   X             Y
+The actual numbers must come from your simulation.
+________________________________________
+33. 12-Minute Target
+The team can use 12 minutes as a target for the simulation, rather than presenting it as an already-proven result.
+The experimental process should be:
+Target:
+≈ 12 minutes
+
+        ↓
+
+Build simulation
+
+        ↓
+
+Run baseline
+
+        ↓
+
+Run UyirKappan
+
+        ↓
+
+Optimize algorithm
+
+        ↓
+
+Run repeated scenarios
+
+        ↓
+
+Measure actual response time
+If the simulation achieves:
+11.8 minutes
+you report the result.
+If it achieves:
+13.4 minutes
+you report that instead and explain the conditions and limitations.
+That makes the research much more defensible.
+________________________________________
+34. Metrics to Collect
+For every emergency request, record:
+Dispatch latency
+Request created
+       ↓
+Ambulance assignment
+Driver response time
+Assignment sent
+       ↓
+Accept / Reject / Timeout
+Travel time
+Ambulance starts
+       ↓
+Patient reached
+Total response time
+Emergency request
+       ↓
+Patient reached
+Fallback count
+Number of failed assignment attempts
+Distance
+Actual simulated route distance
+ETA accuracy
+Predicted ETA
+vs.
+Actual simulated arrival time
+________________________________________
+35. Database Records
+The dispatch engine should store enough information to reproduce an experiment.
+Example:
+DispatchRecord
+
+requestId
+ambulanceId
+candidateRank
+distance
+estimatedTravelTime
+trafficCondition
+score
+assignedAt
+response
+completedAt
+This allows you to later answer:
+Why did the system select this ambulance?
+For example:
+AMB-02 selected because:
+
+Travel time = 7 min
+Distance = 3.5 km
+Traffic = Moderate
+Score = 0.42
+That makes the algorithm explainable.
+________________________________________
+36. Explainability
+The system should not simply output:
+AMB-02
+It should be able to explain:
+Selected AMB-02
+
+Reason:
+• Lowest estimated travel time
+• Favorable traffic conditions
+• Currently available
+• Valid route exists
+This will be particularly useful during faculty/project evaluation because you can demonstrate how the decision was made.
+________________________________________
+37. Failure Handling
+No available ambulance
+Candidates = 0
+       ↓
+NO_AMBULANCE_AVAILABLE
+No valid route
+Ambulance exists
+       ↓
+Road network disconnected
+       ↓
+Candidate excluded
+All candidates reject
+A1 → Reject
+A2 → Reject
+A3 → Reject
+
+No candidates remaining
+       ↓
+Dispatch failure state
+Traffic changes
+Current route becomes unavailable
+       ↓
+Recalculate route
+________________________________________
+38. Performance Considerations
+The engine should avoid calculating routes for an unnecessarily huge fleet.
+A practical simulation flow is:
+All ambulances
+       ↓
+Availability filter
+       ↓
+Radius filter
+       ↓
+Top candidate set
+       ↓
+Route calculation
+This reduces computational work.
+For example:
+1000 ambulances
+       ↓
+200 available
+       ↓
+50 within search radius
+       ↓
+Calculate routes for 50
+The exact optimization can be evaluated as the simulation scale increases.
+________________________________________
+39. Future Scalability
+For a larger system, the dispatch engine can eventually be extended with:
+Geospatial indexing
+       ↓
+Fast candidate retrieval
+       ↓
+Distributed dispatch workers
+       ↓
+Caching
+       ↓
+Message queue
+       ↓
+Multiple dispatch regions
+The current prototype does not need to implement a city-scale production infrastructure to demonstrate the algorithm.
+The important objective is to establish the correct dispatch logic and measurable simulation first.
+________________________________________
+40. Simulation → Real Deployment
+The most important architectural principle is to keep the dispatch algorithm independent of whether its input is simulated or real.
+Current
+Simulated Ambulance GPS
+          ↓
+Virtual Road Network
+          ↓
+Simulated Traffic
+          ↓
+Dispatch Engine
+Future
+Real Ambulance GPS
+          ↓
+Real Road Network
+          ↓
+Real-Time Traffic Data
+          ↓
+Dispatch Engine
+The core decision-making layer can remain conceptually the same.
+________________________________________
+41. Complete Example
+Consider:
+Emergency:
+Cardiac
+
+Location:
+Node 50
+Available:
+A1 → Node 42
+A2 → Node 47
+A3 → Node 38
+Initial geographic distances:
+A1 = 4 km
+A2 = 3 km
+A3 = 2.5 km
+A nearest-ambulance algorithm selects:
+A3
+But the simulation reports:
+A1 → Low traffic → 8 min
+A2 → Moderate traffic → 7 min
+A3 → Heavy traffic → 14 min
+UyirKappan selects:
+A2
+because:
+A2 expected arrival = 7 min
+Then:
+A2 → Driver timeout
+The engine runs again:
+A1 → 8 min
+A3 → 14 min
+A1 becomes the next assignment.
+A1 → Accept
+Then the ambulance moves through the virtual road network.
+A1
+ ↓
+Node 42
+ ↓
+Node 44
+ ↓
+Node 47
+ ↓
+Node 50
+The Live Tracking module receives the movement and updates the bystander and hospital interfaces.
+This demonstrates the complete relationship between intelligent dispatch, fallback, and live tracking.
+________________________________________
+42. Final Module Definition
+Intelligent Dispatch Engine
+The Intelligent Dispatch Engine is the core decision-making component of UyirKappan that identifies the most suitable available ambulance for an emergency request. Rather than relying solely on geographic proximity, the engine filters available candidates, computes routes over a virtual road network using Dijkstra's shortest-path algorithm, incorporates simulated traffic conditions into route travel times, evaluates configurable weighted criteria, and ranks candidates according to expected response performance. The selected ambulance is then assigned through the backend to the driver application. If the selected ambulance rejects or fails to respond, the engine is invoked again with the failed ambulance excluded, enabling cascading re-selection without requiring the bystander to submit a new request. In the initial implementation, the complete engine will be evaluated using simulated ambulances, emergency locations, road networks, traffic conditions, and driver responses. Performance will be measured against a nearest-ambulance baseline, with approximately 12 minutes treated as a target to work toward rather than a predetermined result.
+Core implementation pipeline
+Emergency Request
+       ↓
+Candidate Discovery
+       ↓
+Availability Filtering
+       ↓
+Distance / Radius Filtering
+       ↓
+Virtual Road Network
+       ↓
+Dijkstra Route Calculation
+       ↓
+Traffic-Aware Travel Time
+       ↓
+Weighted Candidate Scoring
+       ↓
+Candidate Ranking
+       ↓
+Best Ambulance
+       ↓
+Driver Assignment
+       ↓
+Accept?
+   /       \
+ YES       NO/TIMEOUT
+  │            │
+  ▼            ▼
+Dispatch    Exclude
+             ↓
+         Re-run Engine
+             ↓
+         Next Candidate
+This module is the algorithmic heart of the simulation: the Bystander module creates the request, the Dispatch Engine makes the selection, the Driver module executes the assignment, and the Live Tracking module measures what happens afterward.
+
